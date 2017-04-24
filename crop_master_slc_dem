@@ -1,0 +1,206 @@
+#!/bin/bash
+##
+## Teije van der Horst - 20160831 
+##
+## Crop important files from the datafolder to the STAMPS processing folder
+##
+## "ex   : ~ \n"
+##
+
+# Variable 
+CWD=`pwd`
+#AWK=`which gawk`
+AWK=`which awk`
+
+## Functions 
+case $# in
+         1) #Main steps
+		REM_FLAG=$1
+		MASTER_SLC='master_deramped.raw'
+		DEM_RAW='refdem.raw'
+		LON='lam.raw'
+		LAT='phi.raw'
+		;;
+		 3)
+		REM_FLAG=$1
+		MASTER_SLC=$2
+		DEM_RAW=$3
+		LON='lam.raw'
+		LAT='phi.raw'
+		;;
+		 5)
+		REM_FLAG=$1
+		MASTER_SLC=$2
+		DEM_RAW=$3
+		LON=$5
+		LAT=$4
+		;;
+         *) echo -e "Usage: ${0##*/}  Remove_files_flag (=0/1)"
+			echo -e "\tDefault values for original files:\n\t- master slc file:\t\t'master_deramped.raw'\n\t- dem data file:\t\t'refdem.raw'\n\t- longitude data file:\t\t'lam.raw'\n\t- latitude data file:\t\t'phi.raw'\n"
+			echo -e "Usage: ${0##*/}  Remove_files_flag(=0/1)  MASTER_SLC_FILE  DEM_RAW_FILE \n"
+			echo -e "Usage: ${0##*/}  Remove_files_flag(=0/1)  MASTER_SLC_FILE  DEM_RAW_FILE  LON_FILE  LAT_FILE \n"
+			
+			exit 3
+	    ;;
+esac
+
+echo "Starting crop_master_slc_dem"
+
+masterdate=$(echo $(<../master_date.txt))
+DF=$(echo $(<../datafolder.txt))
+CropScript=$( echo "$STAMPS"/Sentinel/CropData.py )
+if [[ -e crop.loc ]]; then
+	echo "Reading crop.loc"
+	slavedate=$(echo $(<crop.loc))
+	masterfolder=$(echo $DF$slavedate)
+	if [[ -d $masterfolder ]]; then
+		echo -e "Using the folder from crop.loc as cropping source:\n\t$masterfolder"
+	else
+		echo "Location not found: $masterfolder"
+		exit 1
+	fi
+else
+	echo "No crop.loc found"
+	masterfolder=$(echo `ls "$DF""$masterdate"_????????/ -1d | head -n 1` ) #Always the first folder in $DF
+	echo -e "Using first slavedate from datafolder as cropping source:\n\t$masterfolder"
+fi
+RaL=$( echo $(<looks.txt))
+AR=$( echo $(<ar.txt))
+l0=$(echo `grep line_0 cropparams.txt | awk '{print $2}'`)
+l1=$(echo `grep line_1 cropparams.txt | awk '{print $2}'`)
+p0=$(echo `grep pixel_0 cropparams.txt | awk '{print $2}'`)
+p1=$(echo `grep pixel_1 cropparams.txt | awk '{print $2}'`)
+(( width = (p1 - p0) + 1 ))
+echo $width > width.txt
+(( numlines = (l1 - l0) + 1 ))
+echo $numlines > len.txt
+AzL=$(echo "$RaL * $AR" | bc)
+
+
+#[[ -f orig_master.res ]] || cp master.res orig_master.res No backup needed: information is in resfile already
+
+# Ol0=$(echo `grep "First_line (w.r.t. original_image):" orig_master.res | awk '{print $4}'`)	
+# Ol1=$(echo `grep "Last_line (w.r.t. original_image):" orig_master.res | awk '{print $4}'`)	
+# Op0=$(echo `grep "First_pixel (w.r.t. original_image):" orig_master.res | awk '{print $4}'`)	
+# Op1=$(echo `grep "Last_pixel (w.r.t. original_image):" orig_master.res | awk '{print $4}'`)
+# (( ONL = (Ol1 - Ol0) + 1 ))
+# (( ONP = (Op1 - Op0) + 1 ))
+
+ONL=$(echo `grep "Number_of_lines_original:" master.res | awk '{print $2}'`)	
+ONP=$(echo `grep "Number_of_pixels_original" master.res | awk '{print $2}'`)
+
+####### MASTER_SLC ########
+
+if [[ $REM_FLAG == 1 ]] && [[ -e "$masterdate"_crop.slc ]]; then
+	echo "removing "$masterdate"_crop.slc"
+	rm "$masterdate"_crop.slc -f
+fi
+ 
+if [[ ! -e "$masterdate"_crop.slc ]]; then
+	echo "Creating mastercrop SLC file: ""$masterdate"_crop.slc
+	echo "Original extent was:    $ONL lines and $ONP pixels"
+	echo "cropping to new extent: $numlines lines and $width pixels"
+	master_slc=$(echo "$masterfolder"$MASTER_SLC)
+	#ASSUMING 4BYTE SIZE
+	python $CropScript $master_slc $ONL $ONP "$masterdate"_crop.slc $l0 $l1 $p0 $p1 '4b'
+	echo -e "\nCropping step performed, updating master.res file accordingly"
+	edit_res_crop_master master.res $l0 $l1 $p0 $p1
+	echo "Making preview based on looks.txt and ar.txt parameters"
+	cpxfiddle -w $width -qmag -fci2 -M $RaL/$AzL -o sunraster "$masterdate"_crop.slc  > "$masterdate"_crop.ras
+	echo "Created masterdate crop preview. Remake preview with the following command:"
+	echo "cpxfiddle -w $width -qmag -fci2 -M $RaL/$AzL -o sunraster  "$masterdate"_crop.slc  > "$masterdate"_crop.ras"
+	echo ""
+else 
+	echo ""
+	echo "masterdate_crop.slc already exists"
+	echo "Delete the masterdate_cop.slc file to crop again"
+	echo ""
+fi
+
+####### DEM ########
+
+if [[ $REM_FLAG == 1 && -e dem_radar_i.raw ]]; then
+	echo "removing dem_radar_i.raw"
+	rm dem_radar_i.raw -f
+fi
+
+if [[ ! -e dem_radar_i.raw ]]; then
+	echo "Create demcrop file: dem_radar_i.raw"
+	echo "Original extent was:    $ONL lines and $ONP pixels"
+	echo "cropping to new extent: $numlines lines and $width pixels"
+	dem_raw=$(echo "$masterfolder"$DEM_RAW)
+	#ASSUMING 4BYTE SIZE
+	python $CropScript $dem_raw $ONL $ONP "dem_radar_i.raw" $l0 $l1 $p0 $p1 '4b'
+	cpxfiddle -w $width -qnormal -fr4 -M $RaL/$AzL -o sunraster -c gray "dem_radar_i.raw"  > "dem_radar_i.ras"
+	echo "Created dem crop preview. Remake preview with the following command:"
+	echo "cpxfiddle -w $width -qnormal -fr4 -M $RaL/$AzL -o sunraster  -c gray dem_radar_i.raw  > dem_radar_i.ras"
+	echo ""
+else 
+	echo ""
+	echo "dem_radar_i.raw already exists"
+	echo "Delete the dem_radar_i.raw file to crop it again"
+	echo ""
+fi
+
+###### LON.RAW / LAT.RAW ######
+
+#LON
+if [[ $REM_FLAG == 1 && -e lon.raw ]]; then
+	echo "removing lon.raw"
+	rm lon.raw -f
+fi
+
+if [[ ! -e lon.raw ]]; then
+	echo "Create georef; longitude crop file: lon.raw"
+	echo "Original extent was:    $ONL lines and $ONP pixels"
+	echo "cropping to new extent: $numlines lines and $width pixels"
+	lon_raw=$(echo "$masterfolder"$LON)
+	#ASSUMING 4BYTE SIZE
+	python $CropScript $lon_raw $ONL $ONP "lon.raw" $l0 $l1 $p0 $p1 '4b'
+	cpxfiddle -w $width -qnormal -fr4 -M $RaL/$AzL -o sunraster -c jet "lon.raw"  > "lon.ras"
+	echo "Created longitude crop preview. Remake preview with the following command:"
+	echo "cpxfiddle -w $width -qnormal -fr4 -M $RaL/$AzL -o sunraster  -c jet lon.raw  > lon.ras"
+	echo ""
+else 
+	echo ""
+	echo "lon.raw already exists"
+	echo "Delete the lon.raw file to crop it again"
+	echo ""
+fi
+
+#LAT
+if [[ $REM_FLAG == 1 && -e lat.raw ]]; then
+	echo "removing lat.raw"
+	rm lat.raw -f
+fi
+
+if [[ ! -e lat.raw ]]; then
+	echo "Create georef; latitude crop file: lat.raw"
+	echo "Original extent was:    $ONL lines and $ONP pixels"
+	echo "cropping to new extent: $numlines lines and $width pixels"
+	lat_raw=$(echo "$masterfolder"$LAT)
+	#ASSUMING 4BYTE SIZE
+	python $CropScript $lat_raw $ONL $ONP "lat.raw" $l0 $l1 $p0 $p1 '4b'
+	cpxfiddle -w $width -qnormal -fr4 -M $RaL/$AzL -o sunraster -c jet "lat.raw"  > "lat.ras"
+	echo "Created latitude crop preview. Remake preview with the following command:"
+	echo "cpxfiddle -w $width -qnormal -fr4 -M $RaL/$AzL -o sunraster  -c lat.raw  > lat.ras"
+	echo ""
+else 
+	echo ""
+	echo "lat.raw already exists"
+	echo "Delete the lat.raw file to crop it again"
+	echo ""
+fi
+
+echo ""
+echo "If another extent is desired, edit cropparms.txt and rerun `basename $0` 1"
+echo ""
+
+echo "" 
+echo "cropping program finished"
+		echo ""
+
+
+
+
+#EOF

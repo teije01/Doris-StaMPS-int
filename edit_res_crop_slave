@@ -1,0 +1,63 @@
+#!/bin/bash
+##
+## Teije van der Horst - 20160831 
+##
+## Crop important files from the datafolder to the STAMPS processing folder
+##
+## "ex   : ~ \n"
+##
+
+# Variable 
+CWD=`pwd`
+#AWK=`which gawk`
+AWK=`which awk`
+PROG=`basename $0`
+
+## Functions 
+case $# in
+         5) #Main steps
+		RESFILE=$1
+		NEW_L0=$2
+		NEW_L1=$3
+		NEW_P0=$4
+		NEW_P1=$5
+		;;
+         *) echo -e "Usage: ${0##*/} RESULT_FILE LineStart LineEnd PixelStart PixelEnd\n"
+			exit 2
+	    ;;
+esac
+
+ONLR=$(echo `grep Number_of_lines_resampled_original: $RESFILE | awk '{print $2}'`)
+if [[ $ONLR == "" ]]; then
+	echo "Updating original number of oversampled lines and pixels in $RESFILE"
+	L0=$(echo `grep "First_line (w.r.t. original_master):" slave.res | awk '{print $4}'`)	
+	L1=$(echo `grep "Last_line (w.r.t. original_master):" slave.res | awk '{print $4}'`)
+	P0=$(echo `grep "First_pixel (w.r.t. original_master):" slave.res | awk '{print $4}'`)	
+	P1=$(echo `grep "Last_pixel (w.r.t. original_master):" slave.res | awk '{print $4}'`)
+	(( ONLRn = (L1 - L0) + 1 ))
+	(( ONPRn = (P1 - P0) + 1 ))
+	sed -i "/Number_of_pixels_original:/ a\Number_of_pixels_resampled_original:                      $ONPRn" $RESFILE
+	sed -i "/Number_of_pixels_original:/ a\Number_of_lines_resampled_original:                       $ONLRn" $RESFILE
+else
+	echo "Original number of oversampled lines and pixels has been updated already"
+fi
+
+if [[ -e $1 ]]; then
+	echo "Changing $1 to new parameters"
+	echo "New start line  : $NEW_L0"
+	echo "New stop  line  : $NEW_L1"
+	echo "New start pixel : $NEW_P0"
+	echo "New stop  pixel : $NEW_P1"
+	sed -i '/First_line (w.r.t. original_master):/,/Last_pixel (w.r.t. original_master):/d' $RESFILE
+	sed -i "/Interpolation kernel:/ a\Last_pixel (w.r.t. original_master):        $NEW_P1" $RESFILE
+	sed -i "/Interpolation kernel:/ a\First_pixel (w.r.t. original_master):       $NEW_P0" $RESFILE
+	sed -i "/Interpolation kernel:/ a\Last_line (w.r.t. original_master):         $NEW_L1" $RESFILE
+	sed -i "/Interpolation kernel:/ a\First_line (w.r.t. original_master):        $NEW_L0" $RESFILE
+else
+	echo "file: $1 not found"
+fi 
+
+
+echo -e "$PROG finished\n"
+
+# EOF

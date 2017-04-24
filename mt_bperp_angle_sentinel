@@ -1,0 +1,47 @@
+#!/bin/bash
+#
+# Extract info from various files for use by StaMPS
+#
+# Andy Hooper, November 2007
+# ===========================================================================
+# 09/2010   MA:   update for oversampling
+# ===========================================================================
+
+### Initial welcome
+PRG=`basename "$0"`
+
+WORKDIR=`pwd`
+INSARDIR=$WORKDIR
+LAScript=$( echo "$STAMPS"/Sentinel/LookAngle.py )
+BPScript=$( echo "$STAMPS"/Sentinel/BperpDate.py )
+l0=$(echo `grep line_0 cropparams.txt | awk '{print $2}'`)
+l1=$(echo `grep line_1 cropparams.txt | awk '{print $2}'`)
+p0=$(echo `grep pixel_0 cropparams.txt | awk '{print $2}'`)
+p1=$(echo `grep pixel_1 cropparams.txt | awk '{print $2}'`)
+method='poly'
+degree=4
+
+if [[ -e AllBaselines.pars ]]; then
+	echo "Replacing AllBaselines.pars"
+	rm -f AllBaselines.pars
+fi
+python $LAScript $l0 $l1 $p0 $p1 $method $degree
+for slave in `cat slcs.list`; do
+	cd $slave
+	FN="../bperp_$slave.1.in"
+	python $BPScript $FN $method $degree
+	echo "$slave parameters ------------------" >> ../AllBaselines.pars
+	echo "Base: " `sed -n '1p' < Baseline.pars` >> ../AllBaselines.pars
+	echo "Bpar: " `sed -n '2p' < Baseline.pars` >> ../AllBaselines.pars
+	echo "Bper: " `sed -n '3p' < Baseline.pars` >> ../AllBaselines.pars
+	echo "Bhor: " `sed -n '4p' < Baseline.pars` >> ../AllBaselines.pars
+	echo "Bver: " `sed -n '5p' < Baseline.pars` >> ../AllBaselines.pars
+	echo "Alpha:" `sed -n '6p' < Baseline.pars` >> ../AllBaselines.pars
+	echo "end ----------------------------------" >> ../AllBaselines.pars
+	echo "" >> ../AllBaselines.pars
+	cd ..
+done
+rm -f tmin.txt
+rm -f xyz.txt
+
+#EOF

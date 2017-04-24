@@ -1,0 +1,184 @@
+#!/bin/bash
+##
+## Teije van der Horst - 20160831 
+##
+## Crop important files from the datafolder to the STAMPS processing folder
+##
+## "ex   : ~ \n"
+##
+
+# Variable 
+CWD=`pwd`
+#AWK=`which gawk`
+AWK=`which awk`
+#preview
+
+## Functions 
+case $# in
+         1) #Main steps
+		REM_FLAG=$1
+		SLAVE_SLC='slave_rsmp_deramped.raw'
+		IFG='cint.raw'
+		IFG_SRD='cint_srd.raw'
+		;;
+		 4)
+		REM_FLAG=$1
+		SLAVE_SLC=$2
+		IFG=$3
+		IFG_SRD=$4
+		;;
+         *) echo -e "Usage: ${0##*/}   REM_FLAG(=1/0)\n"
+			echo -e "Usage: ${0##*/}   REM_FLAG   SLAVE_SLC  IFG  IFG_minrefdem\n"
+	    exit 1
+		;;
+esac
+
+PV=0
+#RED='\033[0;31m'
+#NC='\033[0m'
+
+#NECESSARY
+#!cint.minrefdem.raw
+#!cint.raw
+#step_coarse.log /OR/ #make_orbit.log
+#!dem_radar.raw (link to DEM in ..)
+#!slave_res.slc
+
+masterdate=$(echo $(<../master_date.txt))
+DF=$(echo $(<../datafolder.txt))
+CropScript=$( echo "$STAMPS"/Sentinel/CropData.py )
+RaL=$( echo $(<looks.txt))
+AR=$( echo $(<ar.txt))
+INSARDIR=$CWD
+l0=$(echo `grep line_0 cropparams.txt | awk '{print $2}'`)
+l1=$(echo `grep line_1 cropparams.txt | awk '{print $2}'`)
+p0=$(echo `grep pixel_0 cropparams.txt | awk '{print $2}'`)
+p1=$(echo `grep pixel_1 cropparams.txt | awk '{print $2}'`)
+(( width = (p1 - p0) + 1 ))
+(( numlines = (l1 - l0) + 1 ))
+AzL=$(echo "$RaL * $AR" | bc)
+
+for slavefold in `cat ../slave_dates.txt`; do
+	source=$(echo `ls -1d "$DF""$masterdate"_"$slavefold"/ | head -n 1`)
+	if [[ $source == "" ]]; then
+		echo did not find "$masterdate"_"$slavefold"/ in $DF
+	else
+		echo -e "\nMoving to: -------------------------------------------"
+		cd $slavefold
+		echo -e "Cropping from: $source\n"
+		
+		###Edit slave result files
+		edit_res_crop_slave slave.res $l0 $l1 $p0 $p1
+		ONL=$(echo `grep Number_of_lines_resampled_original: slave.res | awk '{print $2}'`)
+		ONP=$(echo `grep Number_of_pixels_resampled_original: slave.res | awk '{print $2}'`)
+		
+		###SLAVE_RES.SLC
+		
+		if [[ $REM_FLAG == 1 ]] && [[ -e slave_res.slc ]]; then
+			echo "removing slave_res.slc"
+			rm slave_res.slc -f
+		fi
+		
+		if [[ ! -e slave_res.slc ]]; then
+			echo "Creating cropped slave SLC"
+			echo "Original extent was:    $ONL lines and $ONP pixels"
+			echo "cropping to new extent: $numlines lines and $width pixels"
+			slave_slc=$(echo "$source"$SLAVE_SLC)
+			#ASSUMING 8BYTE SIZE
+			python $CropScript $slave_slc $ONL $ONP slave_res.slc $l0 $l1 $p0 $p1 '8b'
+			if [[ $PV == 1 ]]; then
+				echo "Making preview based on looks.txt and ar.txt parameters"
+				cpxfiddle -w $width -qmag -fcr4 -M $RaL/$AzL -o sunraster slave_res.slc  > slave_res.ras
+				echo "Created (deramped and resampled) slave_res.slc crop preview. Remake preview with the following command:"
+				echo "cpxfiddle -w $width -qphase -fcr4 -M $RaL/$AzL -o sunraster  slave_res.slc  > slave_res.ras"
+				echo ""
+			fi
+		else
+			echo ""
+			echo "slave_res.slc already exists"
+			echo "Delete the slave_crop.slc file to crop again"
+			echo ""
+		fi
+		echo ""
+		
+		###CINT.RAW
+			
+		if [[ $REM_FLAG == 1 ]] && [[ -e cint.raw ]]; then
+			echo "removing cint.raw"
+			rm cint.raw -f
+		fi
+		
+		if [[ ! -e cint.raw ]]; then
+			echo "Creating cropped interferogram (basic ifg)"
+			echo "Original extent was:    $ONL lines and $ONP pixels"
+			echo "cropping to new extent: $numlines lines and $width pixels"
+			ifg=$(echo "$source"$IFG)
+			#ASSUMING 8BYTE SIZE
+			python $CropScript $ifg $ONL $ONP cint.raw $l0 $l1 $p0 $p1 '8b'
+			if [[ $PV == 1 ]]; then
+				echo "Making preview based on looks.txt and ar.txt parameters"
+				cpxfiddle -w $width -qphase -fcr4 -M $RaL/$AzL -o sunraster cint.raw  > cint.ras
+				echo "Created interferogram crop preview. Remake preview with the following command:"
+				echo "cpxfiddle -w $width -qphase -fcr4 -M $RaL/$AzL -o sunraster  cint.raw  > cint.ras"
+				echo ""
+			fi
+		else
+			echo ""
+			echo "cint.raw already exists"
+			echo "Delete the cint.raw file to crop again"
+			echo ""
+		fi
+		echo ""
+		
+		###CINT.MINREFDEM.RAW
+		
+		if [[ $REM_FLAG == 1 ]] && [[ -e cint.minrefdem.raw ]]; then
+			echo "removing cint.minrefdem.raw"
+			rm cint.minrefdem.raw -f
+		fi
+		
+		if [[ ! -e cint.minrefdem.raw ]]; then
+			echo "Creating cropped interferogram (minrefdem)"
+			echo "Original extent was:    $ONL lines and $ONP pixels"
+			echo "cropping to new extent: $numlines lines and $width pixels"
+			ifgsrd=$(echo "$source"$IFG_SRD)
+			#ASSUMING 8BYTE SIZE
+			#echo -e "${RED}     NOT PERFORMED BECAUSE SOURCE DATA IS INVALID${NC}"
+			python $CropScript $ifgsrd $ONL $ONP cint.minrefdem.raw $l0 $l1 $p0 $p1 '8b'
+			#if [[ $PV == 1 ]]; then
+				echo "Making preview based on looks.txt and ar.txt parameters"
+				cpxfiddle -w $width -qphase -fcr4 -M $RaL/$AzL -o sunraster cint.minrefdem.raw > cint.minrefdem_"$RaL"l.ras
+				echo "Created interferogram crop preview. Remake preview with the following command:"
+				echo "cpxfiddle -w $width -qphase -fcr4 -M $RaL/$AzL -o sunraster  cint.minrefdem.raw  > cint.minrefdem.ras"
+				echo ""
+			#fi
+		else
+			echo ""
+			echo "cint.minrefdem.raw already exists"
+			echo "Delete the cint.minrefdem.raw file to crop again"
+			echo ""
+		fi
+		echo ""
+		
+		###DEM_RADAR.RAW
+		if [[ $REM_FLAG == 1 ]] && [[ -e dem_radar.raw ]]; then
+			echo "removing dem_radar.raw"
+			rm dem_radar.raw -f
+		fi
+		if [[ ! -e dem_radar.raw ]]; then
+			echo "Creating link to DEM in ../"
+			ln -s ../dem_radar_i.raw dem_radar.raw
+			echo ""
+		fi
+		
+		echo -e "Moving to next dir\n"
+		
+		cd $INSARDIR
+	fi
+done
+
+echo "" 
+echo "cropping program finished"
+echo ""
+
+#EOF

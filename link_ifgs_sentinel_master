@@ -1,0 +1,184 @@
+#!/bin/bash
+##
+## Teije van der Horst - 20160831 
+##
+## Setup master processing directory structure for Sentinel / StaMPS
+##
+## "ex   : link_ifgs_sentinel_master /home/username/outdata/asc/ \n"
+##
+
+# Variable 
+DATADIR=$1
+CWD=`pwd`
+#AWK=`which gawk`
+AWK=`which awk`
+
+## Functions 
+GetDates(){
+echo "Creating master_date.txt"
+echo "Creating slave_dates.txt"
+	if [[ -e master_date.txt ]]; then
+		rm master_date.txt
+	fi
+	if [[ -e slave_datess.txt ]]; then
+		rm slave_datess.txt
+	fi
+	if [[ -e slave_dates.txt ]]; then
+		rm slave_dates.txt
+	fi
+  
+  for f in $(ls -d ${DATADIR}*_*/ ); do
+    echo datafolder found: $f
+    bname=$( basename ${f} )
+    datem=$( echo ${bname} | ${AWK} -F '_' '{print substr($1,1)}' )
+	dates=$( echo ${bname} | ${AWK} -F '_' '{print substr($2,1)}' )
+	echo "master date: " $datem
+	echo $datem >> master_dates.txt
+	echo "slave  date: " $dates
+	echo $dates >> slave_datess.txt
+  done
+  echo ""
+ 
+uniq master_dates.txt > master_date.txt
+rm master_dates.txt
+masterdate=$(echo $(<master_date.txt))
+}
+
+FileStructMaster(){
+mlines=$( cat master_date.txt | wc -l | awk '{print $1}' )
+echo "$mlines master date(s) found"
+if [[ $mlines == 1 ]]; then
+	xargs -I, mkdir INSAR_, < master_date.txt
+elif [[ $mlines == 0 ]]; then
+	echo "Missing enter at the end of master_date"
+	echo "I fixed it for you! please run again"
+	echo "" >> master_date.txt
+else
+	echo "More than 1 master_date found"
+	echo "Change master_date.txt to handle only one master date"
+	echo "Then run link_ifgs_sentinel again "
+	exit 1
+fi
+
+}
+
+RemMfromS(){
+#grep -i $masterdate slave_datess.txt > slave_dates.txt
+echo "removing master date from slave_dates.txt if present"
+masterdate=$(echo $(<master_date.txt))
+grep -v "$masterdate" slave_datess.txt > slave_dates_temp_.txt
+sort slave_dates_temp_.txt | uniq  > slave_dates.txt
+rm slave_dates_temp_.txt
+rm slave_datess.txt
+}
+
+FileStructslaves(){
+slines=$( cat slave_dates.txt | wc -l | awk '{print $1}' )
+echo "$slines (unique) slave date(s) found"
+masterdate=$(echo $(<master_date.txt))
+for d in $(cat slave_dates.txt); do
+	dir=$(echo "INSAR_"$masterdate/$d)
+	echo "creating directory" $dir
+	mkdir -p $dir
+done
+
+}
+
+
+case $# in
+         1) #datum Data
+			echo "Sentinel 1 folder preparation"
+			echo ""
+            [[ -e master_date.txt ]] || { GetDates ; }
+			#Master Folder
+			direx=$( ls -1d INSAR_*/ | wc -l )
+			if [[ $direx == 0 ]]; then 
+				echo "Creating master processing folder"
+				{ FileStructMaster ; }
+			elif [[ $direx == 1 ]]; then
+				echo "master folder already exists"
+				echo ""
+			else
+				echo "Multiple INSAR_????????/ folders found; only one is allowed"
+				exit 2
+			fi
+			#Remove master date from slave dates (if present)
+			[[ -e slave_dates.txt ]] || { RemMfromS ; }
+			#Slave structure
+			FileStructslaves
+			#Datafolder location
+			echo $1 > datafolder.txt
+			#arbitrary result files from the master interferogram
+			masterdate=$(echo $(<master_date.txt))
+			resfolder=$(ls -1d $1"$masterdate"_???????? | head -n 1)
+			for file in `ls -1 $resfolder/*.res`; do
+				bname=$( basename -s .res $file )
+				if [[ $bname != "slave" ]]; then #do not copy the slave.res file
+					echo copying to master folder $file
+					cp $file "./INSAR_${masterdate}/"
+				fi
+			done
+			#Copy the correct files from the master folder
+			INSDIR="INSAR_$masterdate"
+			echo "creating image.slc.rsc file"
+			cat ./$INSDIR/master.res | awk '/Scene_center_heading:/{print "HEADING   " sprintf("%.9f", $2) }' > ./$INSDIR/image.slc.rsc
+			echo "creating ar.txt and looks.txt files"
+			echo "20" > ./$INSDIR/looks.txt #for -M20/5
+			echo "0.25" > ./$INSDIR/ar.txt #ar = range_res / az_res. For S1_IW
+			echo "creating slcs.list"
+			cat slave_dates.txt > ./$INSDIR/slcs.list
+			
+			echo "creating dem.dorisin"
+			cp $resfolder/log.out ./$INSDIR/log.out
+			gawk '/## CRD_METHOD/,/STOP/' ./$INSDIR/log.out > ./$INSDIR/dem.dorisin
+			rm ./$INSDIR/log.out
+
+			echo "creating width.txt and len.txt"
+			first=$( echo `get_slc_lp_S1 ./INSAR_${masterdate}/master.res | awk '{print $3}'`)
+			last=$( echo `get_slc_lp_S1 ./INSAR_${masterdate}/master.res | awk '{print $4}'`)
+			#set first = echo `get_slc_lp_S1 ./INSAR_${masterdate}/master.res | awk '{print $3}'`
+			#set last = echo `get_slc_lp_S1 ./INSAR_${masterdate}/master.res  | awk '{print $4}'`
+			(( width = (last - first) + 1 ))
+			echo $width > ./$INSDIR/width.txt
+			
+			first_l=$( echo `get_slc_lp_S1 ./INSAR_${masterdate}/master.res | awk '{print $1}'`)
+			last_l=$( echo `get_slc_lp_S1 ./INSAR_${masterdate}/master.res | awk '{print $2}'`)
+			#set first_l = `get_slc_lp_S1 ./INSAR_${masterdate}/master.res | awk '{print $1}'`
+			#set last_l = `get_slc_lp_S1 ./INSAR_${masterdate}/master.res  | awk '{print $2}'`
+			(( numlines = (last_l - first_l) + 1 ))
+			echo $numlines > ./$INSDIR/len.txt
+			
+			echo "preparing cropfile (default: maximum crop extent)"
+			echo "line_0	1" > ./$INSDIR/cropparams.txt
+			echo "line_1	$numlines" >> ./$INSDIR/cropparams.txt
+			echo "pixel_0	1" >> ./$INSDIR/cropparams.txt
+			echo "pixel_1	$width" >> ./$INSDIR/cropparams.txt
+			
+			echo "link_ifgs_sentinel program finished"
+			echo ""
+            
+			
+			##### NO NEED #####
+			#DORIS INPUT FILES
+			#geocode.dorisin
+			#timing.dorisin
+			#coarse.dorisin
+			#coreg_simple.dorisin
+			#resample.dorisin
+			#interferogram.dorisin
+			#interferogram_nodem.dorisin
+			
+			#DORIS OUTPUT FILES
+			#step_master_orbit.log
+			#log.out
+			
+
+			;;
+         *) echo -e "Usage: ${0##*/} <location of output datafolders> \n"
+            echo -e "ex   : ${0##*/} /home/username/outdata/asc/ \n"
+	    ;;
+esac
+
+
+
+#EOF

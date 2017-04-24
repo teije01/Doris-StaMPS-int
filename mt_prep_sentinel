@@ -1,0 +1,216 @@
+#!/bin/bash
+
+# Interface between Doris and MAINSAR
+#
+# Andy Hooper, January 2007
+#
+# ===========================================================================
+# 04/2009 AH: Deal with extra first/last line/pixels in master.res
+# 10/2009 AH: Fix bug that drops master from calibration
+# 10/2009 MA: Oversampling support
+# 06/2011 AH: Change azimuth overlap default to 50
+# ===========================================================================
+
+### Initial welcome
+PRG='mt_prep_sentinel'
+AUT='Andy Hooper, January 2007'
+MOD='Modified by Teije vd Horst for Sentinel data'
+echo "$PRG $AUT $MOD"
+echo " "
+echo "DISCLAIMER: THIS MODIFIED PROGRAMM IS ONLY TO USE FOR SINGLE MASTER STACKS, SMALL BASELINE FUNCTIONALITY IS NOT IMPLEMENTED YET"
+echo " "
+
+width=$(echo $(<width.txt))
+length=$(echo $(<len.txt))
+(( n_pat = (width \* length) / 5000000 ))
+echo -e "It is recommended to use at least $n_pat patches so each patch has less than 5M SLC pixels\n"
+
+
+if [[ $# == 0 ]]; then
+    echo "usage: mt_prep da_thresh [rg_patches az_patches rg_overlap az_overlap]"
+    echo "    da_thresh                = (delta) amplitude dispersion"
+    echo "                                typical values: 0.4 for PS, 0.6 for SB"
+    echo "    rg_patches (default 1)   = number of patches in range"
+    echo "    az_patches (default 1)   = number of patches in azimuth"
+    echo "    rg_overlap (default 50)  = overlapping pixels between patches in range"
+    echo "    az_overlap (default 50) = overlapping pixels between patches in azimuth"
+    echo ""
+    exit 4
+fi
+
+if [[ $#  -ge 1 ]]; then
+    da_thresh=$1
+fi
+
+if [[ $# -gt 1 ]]; then
+    prg=$2
+else 
+	prg=1
+fi
+
+if [[ $# -gt 2 ]]; then
+	paz=$3
+else 
+    paz=1
+fi
+
+if [[ $# -gt 3 ]]; then
+    overlap_rg=$4
+else 
+    overlap_rg=50
+fi
+
+if [[ $# -gt 4 ]]; then
+    overlap_az=$5
+else 
+    overlap_az=50
+fi
+
+RED='\033[0;31m'
+NC='\033[0m'
+
+echo "Amplitude Dispersion Threshold:" $da_thresh
+echo "Processing" $prg "patch(es) in range and" $paz "in azimuth"
+echo " "
+
+WORKDIR=`pwd`
+dirname=`basename $WORKDIR`
+
+
+
+if [[ $dirname == "SMALL_BASELINES" ]]; then
+    #INSARDIR= `echo $WORKDIR | gawk 'BEGIN {FS = "/SMALL_BASELINES"}{print $1}'`
+    echo "Small Baseline Processing"
+    echo " "
+else
+    INSARDIR=$WORKDIR
+fi
+
+SLC_OSF=`check_slc_sampling $INSARDIR/master.res`
+
+mt_extract_info_sentinel
+mt_bperp_angle_sentinel
+
+# Calibrate amplitudes
+if [[ $dirname == "SMALL_BASELINES" ]]; then
+    ls $WORKDIR/*/*filtrg.slc > $WORKDIR/calamp.in
+    selfile=$WORKDIR/selsbc.in
+else
+    if [[ $SLC_OSF -gt 1 ]]; then
+		#master_slc=`ls $INSARDIR/[1,2]*_crop_ovs.slc`  # MA
+      echo "[INFO  ]  Using oversampled $master_slc"
+    else
+		master_slc=$(echo `ls $INSARDIR/*_crop.slc`)
+    fi
+	
+if [[ $SLC_OSF > 1 ]]; then
+	ln -s $master_slc $master_slc.cr4  # MA assuming oversampled data is cr4
+else
+	if [[ ! -e $master_slc.cr4 ]]; then 
+		echo "Changing dataformat of master_slc from complex short to complex real 4"
+		cpxfiddle -w $width -fci2 -ofloat -qnormal $master_slc  > $master_slc.cr4
+	elif [[ -e $master_slc.cr4 ]]; then
+		echo "master_slc.cr4 already exists, it will not be replaced"
+		echo ""
+	else
+		echo "no master_slc found, unexpected termination"
+		exit 2
+	fi
+fi
+echo $master_slc.cr4 > $WORKDIR/calamp.in
+
+ls $INSARDIR/*/slave_res.slc -1 >> $WORKDIR/calamp.in
+    selfile=$WORKDIR/selpsc.in
+fi
+
+calamp calamp.in $width $WORKDIR/calamp.out
+
+# Set up patches
+echo $da_thresh > $selfile
+echo $width >> $selfile
+###cat calamp.out | gawk '{print "../"$0}' >> selpsc.in
+cat $WORKDIR/calamp.out >> $selfile
+
+
+(( width_p = width / prg ))
+(( length_p = length / paz ))
+
+echo "Patch length in range:   "$width_p"  overlap: "$overlap_rg
+echo "Patch length in azimuth: "$length_p" overlap: "$overlap_az
+
+irg=0
+iaz=0
+ip=0
+while [[ $irg -lt $prg ]]; do
+    (( irg++ ))
+    while [[ $iaz -lt $paz ]]; do
+        (( iaz++ ))
+        (( ip++ ))
+        (( start_rg1 = width_p * (irg - 1) + 1 ))
+        (( start_rg = start_rg1 - overlap_rg ))
+        if [[ $start_rg -lt 1 ]]; then
+			start_rg=1
+		fi
+        (( end_rg1 = width_p * irg ))
+        (( end_rg = end_rg1 + overlap_rg ))
+		if [[ $end_rg -gt $width ]]; then
+			end_rg=$width
+		fi
+        (( start_az1 = length_p * (iaz - 1) + 1 ))
+        (( start_az = start_az1 - overlap_az ))
+        if [[ $start_az -lt 1 ]]; then
+			start_az=1
+		fi
+        (( end_az1 = length_p * iaz ))
+        (( end_az = end_az1 + overlap_az ))
+		if [[ $end_az -gt $length ]]; then 
+			end_az=$length
+		fi
+
+        if [[ ! -e PATCH_$ip ]]; then
+            mkdir PATCH_$ip
+        fi
+        cd PATCH_$ip
+		echo "RANGE START/END  $start_rg  / $end_rg  (overlap)"
+		echo "RANGE START/END  $start_rg1 / $end_rg1"
+		echo "AZIMUTH START/END  $start_az $end_az  (overlap)"
+		echo "AZIMUTH START/END  $start_az1 $end_az1"
+        echo $start_rg > patch.in
+        echo $end_rg >> patch.in
+        echo $start_az >> patch.in
+        echo $end_az >> patch.in
+        echo $start_rg1 > patch_noover.in
+        echo $end_rg1 >> patch_noover.in
+        echo $start_az1 >> patch_noover.in
+        echo $end_az1 >> patch_noover.in
+        cd ..
+    done 
+    iaz=0
+done
+
+
+echo $width > pscphase.in
+ls $WORKDIR/*/cint.minrefdem.raw >> pscphase.in
+#cat tmp.$$ | gawk '{print "../"$0}' >> pscphase.in
+#rm -rf tmp.$$
+
+echo $width > psclonlat.in
+echo $INSARDIR'/lon.raw' >> psclonlat.in
+echo $INSARDIR'/lat.raw' >> psclonlat.in
+
+echo $width > pscdem.in
+echo $INSARDIR'/dem_radar_i.raw' >> pscdem.in
+
+ls -d PATCH_* > patch.list
+
+
+mt_extract_cands_sentinel
+
+ExtrBperp
+
+#SOLVED:
+#echo -e "${RED}Note that there are still errors in the bperp_<date>.1.in and look_angle.1.in files${NC}"
+#echo -e "${RED}The following files need improvement:\n\t- mt_bperp_angle_sentinel\n\t- LookAngle.py\n\t- BperpDate.py${NC}"
+
+echo -e "\nmt_prep_sentinel finished"
+#EOF

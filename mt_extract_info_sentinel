@@ -1,0 +1,70 @@
+#!/bin/csh -f
+
+# Extract info from various files for use by StaMPS
+#
+# Andy Hooper, November 2007
+# ===========================================================================
+# 09/2010   MA:   update for oversampling
+# ===========================================================================
+
+### Initial welcome
+set PRG = `basename "$0"`
+set AUT = "Andy Hooper, November 2007"
+echo "$PRG $AUT"
+echo " "
+
+set WORKDIR = $cwd
+set dirname = `echo $WORKDIR | gawk 'BEGIN {FS = "/"}{print $(NF)}'`
+
+
+if ($dirname == "SMALL_BASELINES") then
+    set INSARDIR = `echo $WORKDIR | gawk 'BEGIN {FS = "/SMALL_BASELINES"}{print $1}'`
+    echo "Small Baseline Processing"
+    echo " "
+else
+    set INSARDIR = $WORKDIR
+endif
+
+set SLC_OSF = `check_slc_sampling $INSARDIR/master.res`  # check if oversampled or not
+
+echo $SLC_OSF > $INSARDIR/slc_osfactor.1.in                 # put oversampling factor to file 
+
+
+
+# Create other input files for PS candidates
+grep 'Bperp' $INSARDIR/*/ifgs.res | gawk '{print $3}' > bperp.1.in
+#\ls $INSARDIR/*/cint.minrefdem.raw | gawk 'BEGIN {FS = "/"}{print $(NF-1)}' > day.1.in
+cat ../slave_dates.txt > day.1.in
+ if ( $SLC_OSF > 1 ) then
+	echo "EDIT FOR OVERSAMPLING HERE"
+   #\ls $INSARDIR/[1,2]*_crop_ovs.slc | gawk 'BEGIN {FS = "/"}{print substr($(NF),1,8)}' > master_day.1.in
+ else
+   #\ls $INSARDIR/[1,2]*_crop.slc | gawk 'BEGIN {FS = "/"}{print substr($(NF),1,8)}' > master_day.1.in
+   cat ../master_date.txt > master_day.1.in
+ endif
+if ($dirname == "SMALL_BASELINES") then
+	echo "Small baselines not functional for Sentinel yet"
+    \ls $WORKDIR/*/cint.minrefdem.raw | gawk 'BEGIN {FS = "/"}{print substr($(NF-1),1,8) " " substr($(NF-1),10,8)}' > ifgday.1.in
+endif
+
+grep HEADING $INSARDIR/*.slc.rsc | gawk 'END {print $2}' > heading.1.in
+if ( `head -n1 heading.1.in` == "" ) then
+    echo "ERROR: Heading info not found"
+    echo "$PRG Terminating prematurely"
+    exit 12
+endif
+grep Radar_wavelength $INSARDIR/master.res | gawk '{print $3}' > lambda.1.in
+
+grep CRD_IN_DEM $INSARDIR/dem.dorisin | head -1 | gawk '{print $3}' > demparms.in 
+grep CRD_IN_SIZE $INSARDIR/dem.dorisin | head -1 | gawk '{print $4}' >> demparms.in 
+grep CRD_IN_SIZE $INSARDIR/dem.dorisin | head -1 | gawk '{print $3}' >> demparms.in 
+grep CRD_IN_UL $INSARDIR/dem.dorisin | head -1 | gawk '{print $4}' >> demparms.in 
+grep CRD_IN_UL $INSARDIR/dem.dorisin | head -1 | gawk '{print $3}' >> demparms.in 
+grep CRD_IN_DELTA $INSARDIR/dem.dorisin | head -1 | gawk '{print $3}' >> demparms.in 
+grep CRD_IN_FORMAT $INSARDIR/dem.dorisin | head -1 | gawk '{print $3}' >> demparms.in 
+
+if ($dirname == "SMALL_BASELINES") then
+    matlab -nojvm -nosplash -nodisplay < $STAMPS/matlab/sb_parms_initial.m > sb_parms_initial.log
+else
+    matlab -nojvm -nosplash -nodisplay < $STAMPS/matlab/ps_parms_initial.m > ps_parms_initial.log
+endif

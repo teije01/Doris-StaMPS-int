@@ -1,0 +1,49 @@
+#!/bin/bash
+##
+## Teije van der Horst - 20160831 
+##
+## Crop important files from the datafolder to the STAMPS processing folder
+##
+## "ex   : ~ \n"
+##
+
+# Variable 
+CWD=`pwd`
+#AWK=`which gawk`
+AWK=`which awk`
+PROG=`basename $0`
+
+## Functions 
+case $# in
+         5) #Main steps
+		RESFILE=$1
+		NEW_L0=$2
+		NEW_L1=$3
+		NEW_P0=$4
+		NEW_P1=$5
+		;;
+         *) echo -e "Usage: ${0##*/} RESULT_FILE LineStart LineEnd PixelStart PixelEnd\n"
+			exit 2
+	    ;;
+esac
+
+if [[ -e $1 ]]; then
+	echo "Changing $1 to new parameters"
+	echo "New start line  : $NEW_L0"
+	echo "New stop  line  : $NEW_L1"
+	echo "New start pixel : $NEW_P0"
+	echo "New stop  pixel : $NEW_P1"
+	sed -i '/First_line (w.r.t. original_image):/,/Last_pixel (w.r.t. original_image):/d' $RESFILE
+	sed -i "/Data_output_format:/ a\Last_pixel (w.r.t. original_image):        $NEW_P1" $RESFILE
+	sed -i "/Data_output_format:/ a\First_pixel (w.r.t. original_image):       $NEW_P0" $RESFILE
+	sed -i "/Data_output_format:/ a\Last_line (w.r.t. original_image):         $NEW_L1" $RESFILE
+	sed -i "/Data_output_format:/ a\First_line (w.r.t. original_image):        $NEW_L0" $RESFILE
+else
+	echo "file: $1 not found"
+fi 
+
+
+echo -e "$PROG finished\n"
+
+
+# EOF

@@ -1,0 +1,56 @@
+#!/bin/bash
+##
+## Teije van der Horst - 20160831 
+##
+## Setup slave processing directory structure for Sentinel / StaMPS
+##
+## Run this in the same location as link_ifgs_sentinel_master
+##
+
+# Variable 
+CWD=`pwd`
+#AWK=`which gawk`
+AWK=`which awk`
+
+########## SLAVE STRUCTURE ############
+echo "Setting up slave structure"
+DF=$( <datafolder.txt )
+MD=$( <master_date.txt )
+PF=`echo "INSAR_"$MD`
+echo $DF
+###########result files
+for d in $(cat slave_dates.txt); do
+	sourcefolder=`ls -1d $DF????????_$d | head -n 1`
+	echo "copying resfiles from" $sourcefolder
+	cp -f $sourcefolder/master.res ./$PF/$d/
+	cp -f $sourcefolder/slave.res ./$PF/$d/
+	cp -f $sourcefolder/ifgs.res ./$PF/$d/
+done
+
+########### important files (handled by crop_slave_slc)
+#cint.minrefdem.raw
+#cint.raw
+#step_coarse.log /OR/ #make_orbit.log
+#dem_radar.raw (link to DEM in ..)
+#slave_res.slc
+
+
+####NO NEED####
+#cint.minrefdem_4l.ras
+#cint.minrefdem_4l.raw
+#coreg.out
+#CPM_Data
+#interferogram.out
+#log.out
+#resample.kml [NO NEED??]
+###########input files
+#coarse.dorisin
+#orbit_Envisat.dorisin
+###########step_*.log files
+#step_coreg.log
+#step_ifg.log
+#step_resample.log
+#SLC (link to SLC folder)
+echo "link_res_sentinel_slaves finished"
+
+#EOF

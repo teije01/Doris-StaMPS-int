@@ -1,0 +1,19 @@
+#!/bin/bash
+echo "Date" > bper.dates
+grep parameters AllBaselines.pars | awk '{print $1}' >> bper.dates
+echo "Bpar" > bpar.vals
+grep Bpar: AllBaselines.pars | awk '{print $2}' >> bpar.vals
+echo "Bper" > bper.vals
+grep Bper: AllBaselines.pars | awk '{print $2}' >> bper.vals
+echo "Base" > base.vals
+grep Bper: AllBaselines.pars | awk '{print $2}' >> base.vals
+echo "Bhor" > bh.vals
+grep Bhor: AllBaselines.pars | awk '{print $2}' >> bh.vals
+echo "Bver" > bv.vals
+grep Bver: AllBaselines.pars | awk '{print $2}' >> bv.vals
+echo "Alpha" > alpha.vals
+grep Alpha: AllBaselines.pars | awk '{print $2}' >> alpha.vals
+paste -d ',' bper.dates bpar.vals bper.vals base.vals bh.vals bv.vals alpha.vals > Baseline.cst
+cat Baseline.cst
+rm -f bper.dates bpar.vals bper.vals base.vals bh.vals bv.vals alpha.vals
+#EOF
