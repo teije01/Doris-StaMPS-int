@@ -1,3 +1,4 @@
+[![DOI](https://zenodo.org/badge/86675275.svg)](https://zenodo.org/badge/latestdoi/86675275)
 
 These scripts enable the usage of StaMPS for Sentinel-1 datasets by interferogram formation using Doris. Currently only PS Processing is implemented in these scripts thus the Small Baseline Processing will not be possible without further modification.
 
