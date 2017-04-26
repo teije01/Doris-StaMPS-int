@@ -51,4 +51,29 @@ and consider adding it to your .bashrc so it is activated upon login
 source /home/path_to_StaMPS_v3.3b1/StaMPS_CONFIG.bash
 ```
 
-#Script overview
+# Script overview (short)
+After creating a single master-stack with Doris, the interface can be used to get StaMPS up and running using the following scripts:
+1. `link_ifgs_sentinel_master`
+   calls to:
+   * `get_slc_lp_S1`.
+2. `link_res_sentinel_slaves`
+3. `crop_master_slc_dem`
+   calls to:
+   * `CropData.py` 
+   * `edit_res_crop_master`
+4. crop_slave_slc
+   calls to:
+   * `CropData.py` 
+   * `edit_res_crop_slave`
+5. `mt_prep_sentinel`
+  calls to:
+   * `mt_extract_info_sentinel`
+   * `mt_bperp_angle_sentinel` 
+      calls to:
+      * `LookAngle.py`
+      * `BperpDate.py`
+   * `mt_extract_cands`
+
+# How to use the scripts:
+
+Work in progress
